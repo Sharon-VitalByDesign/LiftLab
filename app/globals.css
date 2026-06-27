@@ -55,6 +55,17 @@ select {
     page-break-inside: auto;
   }
 
+  .print-section {
+    break-inside: avoid;
+    page-break-inside: avoid;
+    margin-bottom: 18px;
+  }
+
+  .print-card {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
   tr {
     page-break-inside: avoid;
     page-break-after: auto;

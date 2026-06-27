@@ -6,6 +6,9 @@ import { categories, domainColors, gradeLevels, matrix } from "@/lib/liftlabData
 const disclaimer =
   "Always vet the safety and security of any application before use with students. Check with your school district's IT department or DBA before using any student-facing tools or tools that involve student data. The suggestions below are starting points for your own research, not endorsements.";
 
+const toolOutputDisclaimer =
+  "⚠️ Always vet the safety and security of any application before use with students. Check with your school district's IT department or DBA before using any student-facing tools or tools that involve student data. These suggestions are starting points for your own research — not endorsements.";
+
 const emptyAi = { loading: false, error: false };
 
 function shade(hex, alpha) {
@@ -25,7 +28,18 @@ function labelForKey(key) {
   return { domain, subdomain, category, strategy };
 }
 
+function fullDate() {
+  return new Date().toLocaleDateString("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric"
+  });
+}
+
 function Header({ step }) {
+  const labels = ["Setup", "Variability", "Strategies", "Implement", "Plan"];
+  const totalSteps = labels.length;
+
   return (
     <header className="no-print">
       <div className="rainbow-rule h-2 w-full" />
@@ -44,11 +58,11 @@ function Header({ step }) {
         </div>
         <div className="w-full max-w-md">
           <div className="mb-2 flex justify-between text-xs font-bold text-neutral-500">
-            <span>Step {step} of 6</span>
-            <span>{["Setup", "Variability", "Strategies", "Implement", "Fade", "Plan"][step - 1]}</span>
+            <span>Step {step} of {totalSteps}</span>
+            <span>{labels[step - 1]}</span>
           </div>
           <div className="h-3 rounded-full bg-white shadow-inner">
-            <div className="h-3 rounded-full bg-[linear-gradient(90deg,#7c3aed,#2563eb,#16a34a,#d97706,#dc2626)]" style={{ width: `${(step / 6) * 100}%` }} />
+            <div className="h-3 rounded-full bg-[linear-gradient(90deg,#7c3aed,#2563eb,#16a34a,#d97706,#dc2626)]" style={{ width: `${(step / totalSteps) * 100}%` }} />
           </div>
         </div>
       </div>
@@ -84,10 +98,12 @@ export default function Home() {
   const [lessonDescription, setLessonDescription] = useState("");
   const [gradeLevel, setGradeLevel] = useState("");
   const [touched, setTouched] = useState(false);
+  const [lessonUpload, setLessonUpload] = useState(emptyAi);
   const [selectedDomains, setSelectedDomains] = useState([]);
   const [selectedSubdomains, setSelectedSubdomains] = useState({});
   const [selectedStrategies, setSelectedStrategies] = useState([]);
   const [tools, setTools] = useState([]);
+  const [selectedTools, setSelectedTools] = useState([]);
   const [toolAi, setToolAi] = useState(emptyAi);
   const [showDisclaimer, setShowDisclaimer] = useState(false);
   const [disclaimerDismissed, setDisclaimerDismissed] = useState(false);
@@ -95,7 +111,6 @@ export default function Home() {
   const [selectedImplementation, setSelectedImplementation] = useState([]);
   const [implementationAi, setImplementationAi] = useState(emptyAi);
   const [fading, setFading] = useState([]);
-  const [selectedFading, setSelectedFading] = useState([]);
   const [fadingAi, setFadingAi] = useState(emptyAi);
 
   const selectedPairs = useMemo(
@@ -130,6 +145,8 @@ export default function Home() {
       return `${pair.domain} / ${pair.subdomain}: ${strategyText}`;
     })
     .join("\n");
+
+  const selectedToolItems = selectedTools.map((index) => tools[index]).filter(Boolean);
 
   const missingLesson = touched && !lessonDescription.trim();
   const missingGrade = touched && !gradeLevel;
@@ -166,6 +183,29 @@ export default function Home() {
     setter((current) => (current.includes(value) ? current.filter((item) => item !== value) : [...current, value]));
   }
 
+  async function extractLessonFromFile(file) {
+    if (!file) return;
+
+    setLessonUpload({ loading: true, error: false });
+    const formData = new FormData();
+    formData.append("callType", "extractLesson");
+    formData.append("file", file);
+
+    try {
+      const response = await fetch("/api/ai", {
+        method: "POST",
+        body: formData
+      });
+      if (!response.ok) throw new Error("Extraction failed");
+      const data = await response.json();
+      if (!data.description) throw new Error("No description");
+      setLessonDescription(data.description);
+      setLessonUpload({ loading: false, error: false });
+    } catch {
+      setLessonUpload({ loading: false, error: true });
+    }
+  }
+
   async function callAi(callType, setter, resultHandler) {
     setter({ loading: true, error: false });
     const payload = {
@@ -196,7 +236,11 @@ export default function Home() {
 
   function requestTools() {
     setShowDisclaimer(true);
-    callAi("tools", setToolAi, (data) => setTools(data.tools || []));
+    callAi("tools", setToolAi, (data) => {
+      const nextTools = data.tools || [];
+      setTools(nextTools);
+      setSelectedTools(nextTools.map((_, index) => index));
+    });
   }
 
   function requestImplementation() {
@@ -209,7 +253,6 @@ export default function Home() {
   function requestFading() {
     callAi("fading", setFadingAi, (data) => {
       setFading(data.fadingStrategies || []);
-      setSelectedFading([]);
     });
   }
 
@@ -250,6 +293,17 @@ export default function Home() {
                   value={lessonDescription}
                   onChange={(event) => setLessonDescription(event.target.value)}
                 />
+                <div className="mt-4 rounded-2xl border-2 border-dashed border-neutral-200 bg-neutral-50 p-4">
+                  <span className="block text-sm font-black text-neutral-700">Or upload a lesson plan.</span>
+                  <input
+                    className="mt-3 block w-full cursor-pointer rounded-xl bg-white text-sm font-semibold file:mr-4 file:cursor-pointer file:rounded-xl file:border-0 file:bg-neutral-950 file:px-4 file:py-2 file:font-black file:text-white"
+                    type="file"
+                    accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                    onChange={(event) => extractLessonFromFile(event.target.files?.[0])}
+                  />
+                  {lessonUpload.loading && <p className="mt-3 text-sm font-black text-neutral-700">Extracting lesson description...</p>}
+                  {lessonUpload.error && <p className="mt-3 text-sm font-bold text-red-700">Could not extract that file. You can still type or paste the lesson manually.</p>}
+                </div>
               </label>
               <label className="block">
                 <span className="text-sm font-black text-neutral-700">Grade level</span>
@@ -380,17 +434,25 @@ export default function Home() {
             {toolAi.loading && <div className="rounded-3xl bg-white p-5 font-black shadow-soft">Researching AI tools...</div>}
             {!!tools.length && (
               <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                {tools.map((tool, index) => (
-                  <article key={`${tool.name}-${index}`} className="rounded-3xl bg-white p-5 shadow-soft">
-                    <h3 className="text-lg font-black">{tool.name}</h3>
+                {tools.map((tool, index) => {
+                  const selected = selectedTools.includes(index);
+                  return (
+                  <button
+                    key={`${tool.name}-${index}`}
+                    className={`relative rounded-3xl border-2 bg-white p-5 text-left shadow-soft transition ${selected ? "border-neutral-950 opacity-100" : "border-transparent opacity-60"}`}
+                    onClick={() => toggleItem(setSelectedTools, index)}
+                  >
+                    {selected && <span className="absolute right-4 top-4 grid h-7 w-7 place-items-center rounded-full bg-neutral-950 text-sm font-black text-white">✓</span>}
+                    <h3 className="pr-8 text-lg font-black">{tool.name}</h3>
                     <p className="mt-2 text-sm text-neutral-700">{tool.description}</p>
                     <p className="mt-3 text-sm"><strong>Supports:</strong> {tool.supports}</p>
                     <p className="mt-2 text-sm"><strong>Age note:</strong> {tool.ageNote}</p>
                     <span className="mt-4 inline-flex rounded-full bg-neutral-100 px-3 py-1 text-xs font-black">
                       {tool.teacherFacing && tool.studentFacing ? "Both" : tool.teacherFacing ? "Teacher-facing" : "Student-facing"}
                     </span>
-                  </article>
-                ))}
+                  </button>
+                );
+                })}
               </div>
             )}
 
@@ -443,58 +505,24 @@ export default function Home() {
         )}
 
         {step === 5 && (
-          <section className="space-y-5 rounded-3xl bg-white p-6 shadow-soft md:p-8">
-            <div className="rounded-3xl border-2 border-neutral-900 bg-neutral-950 p-6 text-white">
-              <h2 className="text-2xl font-black">Before we look at the AI suggestions - think about this:</h2>
-              <p className="mt-3 text-xl font-semibold">For the supports you've selected, what would fading toward independence actually look like for YOUR learners? How would you know when to pull back?</p>
-            </div>
-            <Button onClick={requestFading} disabled={fadingAi.loading}>Show me AI suggestions for fading these supports</Button>
-            {fadingAi.loading && <p className="font-black">Generating fading suggestions...</p>}
-            {fadingAi.error && <ErrorBox onRetry={requestFading} />}
-            {!!fading.length && (
-              <div className="grid gap-4 md:grid-cols-2">
-                {fading.map((item, index) => {
-                  const selected = selectedFading.includes(index);
-                  return (
-                    <button
-                      key={`${item.support}-${index}`}
-                      className={`rounded-3xl border-2 p-5 text-left transition ${selected ? "border-neutral-950 bg-neutral-950 text-white" : "border-neutral-200 bg-white"}`}
-                      onClick={() => toggleItem(setSelectedFading, index)}
-                    >
-                      <h3 className="font-black">{item.support}</h3>
-                      <p className="mt-2 text-sm"><strong>Indicator:</strong> {item.indicator}</p>
-                      <p className="mt-2 text-sm"><strong>Next step:</strong> {item.nextStep}</p>
-                      <p className="mt-2 text-sm"><strong>Independence:</strong> {item.independenceMarker}</p>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-            <div className="flex justify-between">
-              <Button variant="quiet" onClick={() => setStep(4)}>Back</Button>
-              <Button onClick={() => setStep(6)} disabled={!fading.length}>Generate My LiftLab Plan</Button>
-            </div>
-          </section>
-        )}
-
-        {step === 6 && (
           <section className="space-y-5">
             <div className="no-print flex flex-wrap items-center justify-between gap-3 rounded-3xl bg-white p-5 shadow-soft">
               <h2 className="text-2xl font-black">Your LiftLab Plan</h2>
               <div className="flex gap-3">
-                <Button variant="quiet" onClick={() => setStep(5)}>Back</Button>
+                <Button variant="quiet" onClick={() => setStep(4)}>Back</Button>
                 <Button onClick={() => window.print()}>Print / Save PDF</Button>
               </div>
             </div>
-            <PlanTable
+            <PlanOutput
               lessonDescription={lessonDescription}
               gradeLevel={gradeLevel}
               rows={outputRows()}
-              tools={tools}
+              tools={selectedToolItems}
               implementation={implementation}
               selectedImplementation={selectedImplementation}
               fading={fading}
-              selectedFading={selectedFading}
+              fadingAi={fadingAi}
+              requestFading={requestFading}
             />
           </section>
         )}
@@ -503,69 +531,114 @@ export default function Home() {
   );
 }
 
-function PlanTable({ lessonDescription, gradeLevel, rows, tools, implementation, selectedImplementation, fading, selectedFading }) {
-  const date = new Date().toLocaleDateString();
+function PlanOutput({ lessonDescription, gradeLevel, rows, tools, implementation, selectedImplementation, fading, fadingAi, requestFading }) {
+  const date = fullDate();
   const selectedIdeas = selectedImplementation.map((index) => implementation[index]).filter(Boolean);
-  const selectedFade = selectedFading.map((index) => fading[index]).filter(Boolean);
-  const columnCount = 2 + (tools.length ? 1 : 0) + selectedIdeas.length + (selectedFade.length ? 1 : 0);
 
   return (
-    <div className="print-area overflow-x-auto rounded-3xl bg-white p-4 shadow-soft print:rounded-none print:p-0 print:shadow-none">
-      <table className="w-full min-w-[1000px] border-collapse text-left text-sm">
-        <thead>
-          <tr>
-            <th className="border border-neutral-300 p-3 text-xl font-black">LiftLab</th>
-            <th className="border border-neutral-300 p-3 text-center font-black" colSpan={Math.max(columnCount - 2, 1)}>{date}</th>
-            <th className="border border-neutral-300 p-3 text-right text-xs font-black">A Vital by Design Tool - Dr. Sharon Matthews</th>
-          </tr>
-          <tr>
-            <th className="border border-neutral-300 bg-purple-50 p-4 text-base font-black" colSpan={columnCount}>
-              Lesson: {lessonDescription}, {gradeLevel}
-            </th>
-          </tr>
-          <tr>
-            <th className="border border-neutral-300 p-3 font-black">Domain & Subdomain</th>
-            <th className="border border-neutral-300 p-3 font-black">Selected Strategies</th>
-            {!!tools.length && <th className="border border-neutral-300 p-3 font-black">AI Tools to Research</th>}
-            {selectedIdeas.map((_, index) => <th key={index} className="border border-neutral-300 p-3 font-black">Implementation Idea {index + 1}</th>)}
-            {!!selectedFade.length && <th className="border border-neutral-300 p-3 font-black">Fading Toward Independence</th>}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row) => (
-            <tr key={`${row.domain}-${row.subdomain}`}>
-              <td className="border border-neutral-300 p-3 align-top font-black" style={{ borderLeft: `8px solid ${row.color}` }}>
-                <span style={{ color: row.color }}>{row.domain}</span>
-                <br />
-                {row.subdomain}
-              </td>
-              <td className="border border-neutral-300 p-3 align-top">{row.strategies.length ? row.strategies.join(", ") : "No specific strategies selected"}</td>
-              {!!tools.length && (
-                <td className="border border-neutral-300 p-3 align-top">
-                  {tools.map((tool) => `${tool.name}: ${tool.supports}`).join("; ")}
-                </td>
-              )}
-              {selectedIdeas.map((idea, index) => (
-                <td key={index} className="border border-neutral-300 p-3 align-top">
-                  <strong>{idea.title}</strong>
-                  <br />
-                  {idea.description}
-                </td>
-              ))}
-              {!!selectedFade.length && (
-                <td className="border border-neutral-300 p-3 align-top">
-                  {selectedFade.map((item) => `${item.support}: ${item.nextStep} Independence marker: ${item.independenceMarker}`).join("; ")}
-                </td>
-              )}
+    <div className="print-area space-y-6">
+      <section className="print-section overflow-x-auto rounded-3xl bg-white p-4 shadow-soft print:rounded-none print:p-0 print:shadow-none">
+        <h2 className="mb-3 text-2xl font-black">The Plan</h2>
+        <table className="w-full min-w-[760px] border-collapse text-left text-sm">
+          <thead>
+            <tr>
+              <th className="border border-neutral-300 p-3 text-xl font-black">LiftLab</th>
+              <th className="border border-neutral-300 p-3 text-center font-black">{date}</th>
+              <th className="border border-neutral-300 p-3 text-right text-xs font-black">A Vital by Design Tool - Dr. Sharon Matthews</th>
             </tr>
-          ))}
-          <tr>
-            <td className="border border-neutral-300 bg-neutral-50 p-3 text-xs" colSpan={columnCount}>
-              Disclaimer: Always vet the safety and security of any application before use with students. Check with your school district's IT department or DBA before using any student-facing tools or tools that involve student data. AI tool suggestions are starting points for your own research, not endorsements. LiftLab is a Vital by Design tool. © Dr. Sharon Matthews.
-            </td>
-          </tr>
-        </tbody>
-      </table>
+            <tr>
+              <th className="border border-neutral-300 bg-purple-50 p-4 text-base font-black" colSpan={3}>
+                Lesson: {lessonDescription}, Grade {gradeLevel}
+              </th>
+            </tr>
+            <tr>
+              <th className="border border-neutral-300 p-3 font-black" colSpan={1}>Domain & Subdomain</th>
+              <th className="border border-neutral-300 p-3 font-black" colSpan={2}>Selected Strategies</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={`${row.domain}-${row.subdomain}`}>
+                <td className="border border-neutral-300 p-3 align-top font-black" style={{ borderLeft: `8px solid ${row.color}` }}>
+                  <span style={{ color: row.color }}>{row.domain}</span>
+                  <br />
+                  {row.subdomain}
+                </td>
+                <td className="border border-neutral-300 p-3 align-top" colSpan={2}>{row.strategies.length ? row.strategies.join(", ") : "No specific strategies selected"}</td>
+              </tr>
+            ))}
+            <tr>
+              <td className="border border-neutral-300 bg-neutral-50 p-3 text-xs" colSpan={3}>
+                Disclaimer: Always vet the safety and security of any application before use with students. Check with your school district's IT department or DBA before using any student-facing tools or tools that involve student data. AI tool suggestions are starting points for your own research, not endorsements. LiftLab is a Vital by Design tool. © Dr. Sharon Matthews.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      {!!selectedIdeas.length && (
+        <section className="print-section rounded-3xl bg-white p-5 shadow-soft print:rounded-none print:shadow-none">
+          <h2 className="text-2xl font-black">Implementation Suggestions</h2>
+          <div className={`mt-4 grid gap-4 ${selectedIdeas.length > 1 ? "md:grid-cols-2 xl:grid-cols-3" : ""}`}>
+            {selectedIdeas.map((idea, index) => (
+              <article key={`${idea.title}-${index}`} className="print-card rounded-3xl border-2 border-neutral-100 p-5">
+                <h3 className="text-lg font-black">{idea.title}</h3>
+                <p className="mt-2 text-sm text-neutral-700">{idea.description}</p>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {(idea.strategiesUsed || []).map((strategy) => (
+                    <span key={strategy} className="rounded-full bg-neutral-100 px-3 py-1 text-xs font-black">{strategy}</span>
+                  ))}
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {!!tools.length && (
+        <section className="print-section rounded-3xl bg-white p-5 shadow-soft print:rounded-none print:shadow-none">
+          <h2 className="text-2xl font-black">AI Tools to Research</h2>
+          <p className="mt-3 rounded-2xl border-2 border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-950">{toolOutputDisclaimer}</p>
+          <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {tools.map((tool, index) => (
+              <article key={`${tool.name}-${index}`} className="print-card rounded-3xl border-2 border-neutral-100 p-5">
+                <h3 className="text-lg font-black">{tool.name}</h3>
+                <p className="mt-2 text-sm text-neutral-700">{tool.description}</p>
+                <p className="mt-3 text-sm"><strong>Supports:</strong> {tool.supports}</p>
+                <p className="mt-2 text-sm"><strong>Age note:</strong> {tool.ageNote}</p>
+                <span className="mt-4 inline-flex rounded-full bg-neutral-100 px-3 py-1 text-xs font-black">
+                  {tool.teacherFacing && tool.studentFacing ? "Both" : tool.teacherFacing ? "Teacher-facing" : "Student-facing"}
+                </span>
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
+
+      <section className="no-print rounded-3xl bg-white p-5 shadow-soft">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <h2 className="text-xl font-black">Would you like AI suggestions for fading these scaffolds toward independence?</h2>
+          <Button onClick={requestFading} disabled={fadingAi.loading}>Show me fading suggestions</Button>
+        </div>
+        {fadingAi.loading && <p className="mt-3 font-black">Generating fading suggestions...</p>}
+        {fadingAi.error && <div className="mt-4"><ErrorBox onRetry={requestFading} /></div>}
+      </section>
+
+      {!!fading.length && (
+        <section className="print-section rounded-3xl bg-white p-5 shadow-soft print:rounded-none print:shadow-none">
+          <h2 className="text-2xl font-black">Fading Toward Independence</h2>
+          <div className="mt-4 grid gap-4 md:grid-cols-2">
+            {fading.map((item, index) => (
+              <article key={`${item.support}-${index}`} className="print-card rounded-3xl border-2 border-neutral-100 p-5">
+                <h3 className="font-black">{item.support}</h3>
+                <p className="mt-2 text-sm"><strong>Indicator:</strong> {item.indicator}</p>
+                <p className="mt-2 text-sm"><strong>Next step:</strong> {item.nextStep}</p>
+                <p className="mt-2 text-sm"><strong>Independence marker:</strong> {item.independenceMarker}</p>
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
     </div>
   );
 }
